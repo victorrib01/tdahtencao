@@ -1,24 +1,40 @@
-const CACHE_NAME = 'cronograma-cache-v1';
-const ASSETS = [
-  '/',
+// service-worker.js
+const CACHE = 'cronograma-v1';
+
+// coloque apenas o que EXISTE realmente
+const PRECACHE = [
+  '/',                       // root
   '/index.html',
-  '/styles.css',
-  '/main.js',
-  // outros recursos estáticos
+  '/css/style.css',
+  '/js/app.js',              // ponto de entrada
+  '/assets/icons/icon-192.png',
+  '/assets/icons/icon-512.png'
 ];
 
-self.addEventListener('install', ev => {
-  ev.waitUntil(caches.open(CACHE_NAME).then(cache => cache.addAll(ASSETS)));
+self.addEventListener('install', evt => {
+  evt.waitUntil(
+    caches.open(CACHE).then(cache => cache.addAll(PRECACHE))
+  );
+  self.skipWaiting();
 });
 
-self.addEventListener('fetch', ev => {
-  ev.respondWith(
-    caches.match(ev.request).then(cached => {
-      const network = fetch(ev.request).then(res => {
-        caches.open(CACHE_NAME).then(cache => cache.put(ev.request, res.clone()));
+self.addEventListener('activate', evt => {
+  evt.waitUntil(
+    caches.keys().then(keys =>
+      Promise.all(keys.filter(k => k !== CACHE).map(k => caches.delete(k)))
+    )
+  );
+});
+
+self.addEventListener('fetch', evt => {
+  // Network‑first → se offline devolve do cache
+  evt.respondWith(
+    fetch(evt.request)
+      .then(res => {
+        const clone = res.clone();
+        caches.open(CACHE).then(c => c.put(evt.request, clone));
         return res;
-      });
-      return cached || network;
-    })
+      })
+      .catch(() => caches.match(evt.request))
   );
 });

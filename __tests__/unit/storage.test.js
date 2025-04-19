@@ -1,4 +1,4 @@
-import { saveTasks, loadTasks } from '../main.js';
+import { saveTasks, loadTasks } from '../../main.js';
 
 describe('Storage', () => {
   beforeEach(() => localStorage.clear());
