@@ -1,0 +1,16 @@
+{
+  "name": "cronograma-tdh",
+  "version": "1.0.0",
+  "main": "main.js",
+  "scripts": {
+  "start": "electron .",
+  "package-win": "electron-packager . CronogramaTDH --platform=win32 --arch=x64 --out=dist --icon=icon.ico --overwrite"
+},
+
+  "devDependencies": {
+    "cypress": "^9.0.0",
+    "electron": "^*",
+    "electron-packager": "^17.1.2",
+    "jest": "^27.0.0"
+  }
+}
