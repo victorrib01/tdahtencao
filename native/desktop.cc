@@ -1,52 +1,47 @@
+// native/desktop.cc
 #include <napi.h>
 #include <windows.h>
 
-// Encontra a janela WorkerW / Progman do desktop
-static HWND findWallpaperWindow() {
-  // Chama a versão wide-char
+// Percorre todas as janelas procurando aquela que possui a SHELLDLL_DefView
+BOOL CALLBACK enumProc(HWND topHandle, LPARAM lParam) {
+  HWND defView = FindWindowExW(topHandle, NULL, L"SHELLDLL_DefView", NULL);
+  if (defView) {
+    // A WorkerW fica logo acima de Progman, irmão de SHELLDLL_DefView
+    HWND* pWorker = (HWND*)lParam;
+    *pWorker = FindWindowExW(NULL, topHandle, L"WorkerW", NULL);
+    return FALSE; // pare de enumerar
+  }
+  return TRUE; // continue
+}
+
+Napi::Value setAsWallpaper(const Napi::CallbackInfo& info) {
+  Napi::Env env = info.Env();
+  // 1) captura o HWND da janela Electron
+  Napi::Buffer<void*> buf = info[0].As<Napi::Buffer<void*>>();
+  HWND hwnd = (HWND)buf.Data();
+
+  // 2) forçamos o Progman a criar a WorkerW
   HWND progman = FindWindowW(L"Progman", NULL);
-  // Envia a mensagem para criar WorkerW
-  SendMessageTimeoutW(progman, 0x052C, 0, 0, SMTO_NORMAL, 100, nullptr);
+  SendMessageTimeoutW(progman, 0x052C, 0, 0, SMTO_NORMAL, 1000, nullptr);
 
-  HWND worker = NULL;
-  EnumWindows(
-    [](HWND top, LPARAM lParam) -> BOOL {
-      // Procura a SHELLDLL_DefView (wide-char)
-      HWND sv = FindWindowExW(top, nullptr, L"SHELLDLL_DefView", nullptr);
-      if (sv) {
-        HWND *pWorker = reinterpret_cast<HWND*>(lParam);
-        // A janela WorkerW é filha do topo
-        *pWorker = FindWindowExW(nullptr, top, L"WorkerW", nullptr);
-        return FALSE;  // para o EnumWindows
-      }
-      return TRUE;     // continuará procurando
-    },
-    reinterpret_cast<LPARAM>(&worker)
-  );
-  return worker ? worker : progman;
-}
+  // 3) encontramos essa WorkerW
+  HWND workerw = NULL;
+  EnumWindows(enumProc, (LPARAM)&workerw);
 
-Napi::Value Attach(const Napi::CallbackInfo& info) {
-  Napi::Env env = info.Env();
-  if (!info[0].IsNumber()) return env.Null();
-  // Obtém o HWND (número) passado do JS
-  HWND hwnd = reinterpret_cast<HWND>(static_cast<uintptr_t>(info[0].As<Napi::Number>().Int64Value()));
-  HWND wp   = findWallpaperWindow();
-  SetParent(hwnd, wp);
-  return env.Undefined();
-}
+  if (workerw) {
+    // 4) pai da nossa janela passa a ser a WorkerW
+    SetParent(hwnd, workerw);
+    // removemos bordas / sombras
+    LONG style = GetWindowLongW(hwnd, GWL_STYLE);
+    SetWindowLongW(hwnd, GWL_STYLE, style & ~WS_CAPTION);
+  }
 
-Napi::Value Detach(const Napi::CallbackInfo& info) {
-  Napi::Env env = info.Env();
-  if (!info[0].IsNumber()) return env.Null();
-  HWND hwnd = reinterpret_cast<HWND>(static_cast<uintptr_t>(info[0].As<Napi::Number>().Int64Value()));
-  SetParent(hwnd, NULL);
   return env.Undefined();
 }
 
 Napi::Object Init(Napi::Env env, Napi::Object exports) {
-  exports.Set("attach", Napi::Function::New(env, Attach));
-  exports.Set("detach", Napi::Function::New(env, Detach));
+  exports.Set("setAsWallpaper",
+    Napi::Function::New(env, setAsWallpaper));
   return exports;
 }
 

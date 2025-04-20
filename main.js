@@ -1,75 +1,98 @@
-const { app, BrowserWindow, Tray, Menu, ipcMain, screen } = require('electron');
+// main.js
+const { app, BrowserWindow, ipcMain, Tray, Menu } = require('electron');
 const path = require('path');
 
-// carregue o módulo nativo
+// carrega o addon nativo que expõe `setAsWallpaper(HWND)`
 const desktop = require(path.join(__dirname, 'native', 'build', 'Release', 'desktop.node'));
 
-let win, tray, isWallpaper = false;
+let mainWindow;
+let wallpaperWindow;
+let tray;
 
-function createWindow() {
-  win = new BrowserWindow({
-    width: 600, height: 400,
-    frame: false,
-    transparent: true,
-    resizable: false,
+function createWindows() {
+  // 1) Janela interativa normal
+  mainWindow = new BrowserWindow({
+    width: 900,
+    height: 700,
+    show: true,
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
-      contextIsolation: true,
-      nodeIntegration: false
+      contextIsolation: true
     }
   });
-  win.loadFile('index.html');
-  buildTray();
+  mainWindow.loadFile('index.html');
+
+  // 2) Janela “wallpaper” (transparent & click‑through)
+  wallpaperWindow = new BrowserWindow({
+    width: 900,
+    height: 700,
+    frame: false,
+    transparent: true,
+    hasShadow: false,
+    skipTaskbar: true,
+    focusable: false,
+    show: false,
+    webPreferences: {
+      preload: path.join(__dirname, 'preload.js'),
+      contextIsolation: true
+    }
+  });
+  wallpaperWindow.setIgnoreMouseEvents(true, { forward: true });
+  wallpaperWindow.loadFile('index.html');
+
+  // 3) Assim que estiver pronta, “encaixa” atrás dos ícones
+  wallpaperWindow.once('ready-to-show', () => {
+    const handle = wallpaperWindow.getNativeWindowHandle();
+    // handle já é um Buffer com o HWND
+    desktop.setAsWallpaper(handle);
+  });
+
+  // Se o usuário fechar a janela interativa, encerra o app
+  mainWindow.on('closed', () => {
+    app.quit();
+  });
 }
 
-function buildTray() {
-  tray = new Tray(path.join(__dirname, 'assets','icons', 'icon-192.png'));
-  updateMenu();
+function setupTray() {
+  tray = new Tray(path.join(__dirname, 'icon.png')); // um ícone PNG ou ICO de 16x16/32x32
+  const ctxMenu = Menu.buildFromTemplate([
+    { label: 'Abrir Cronograma', click: () => switchToInteractive() },
+    { label: 'Modo Wallpaper', click: () => switchToWallpaper() },
+    { type: 'separator' },
+    { label: 'Sair', click: () => app.quit() }
+  ]);
+  tray.setToolTip('Cronograma TDH++');
+  tray.setContextMenu(ctxMenu);
 }
 
-function updateMenu() {
-  tray.setContextMenu(Menu.buildFromTemplate([
-    {
-      label: isWallpaper ? 'Abrir App' : 'Wallpaper Mode',
-      click: toggleWallpaperMode
-    },
-    { role: 'quit', label: 'Sair' }
-  ]));
+function switchToWallpaper() {
+  if (mainWindow) mainWindow.hide();
+  if (wallpaperWindow) wallpaperWindow.show();
 }
 
-function toggleWallpaperMode() {
-  const hwndBuf = win.getNativeWindowHandle();
-  // Para x64:
-  const hwnd = hwndBuf.readUInt32LE(0);
-
-  if (!isWallpaper) {
-    // cola atrás dos ícones
-    desktop.attach(hwnd);
-    // e torna click‑through
-    win.setIgnoreMouseEvents(true, { forward: true });
-    win.setAlwaysOnTop(true, 'screen-saver');
-    // maximize cobre toda a tela
-    const { width, height } = screen.getPrimaryDisplay().workArea;
-    win.setBounds({ x: 0, y: 0, width, height });
-  } else {
-    // restaura para janela normal
-    desktop.detach(hwnd);
-    win.setIgnoreMouseEvents(false);
-    win.setAlwaysOnTop(false);
-    win.unmaximize();
-    win.setSize(600, 400);
-    win.center();
-  }
-
-  isWallpaper = !isWallpaper;
-  updateMenu();
-  // informe ao renderer se quiser esconder badges, etc.
-  win.webContents.send('wallpaper-state', isWallpaper);
+function switchToInteractive() {
+  if (wallpaperWindow) wallpaperWindow.hide();
+  if (mainWindow) mainWindow.show();
 }
 
-app.whenReady().then(createWindow);
+// IPC para permitir que o renderer também mande trocar
+ipcMain.on('wallpaper-mode', switchToWallpaper);
+ipcMain.on('interactive-mode', switchToInteractive);
 
-ipcMain.handle('toggle-wallpaper', () => {
-  toggleWallpaperMode();
-  return isWallpaper;
+// App ready
+app.whenReady().then(() => {
+  createWindows();
+  setupTray();
+
+  // No macOS, recria se o dock icon for clicado e não houver janelas
+  app.on('activate', () => {
+    if (BrowserWindow.getAllWindows().length === 0) {
+      createWindows();
+    }
+  });
+});
+
+// Fecha completamente em todas as plataformas quando todas as janelas fecharem
+app.on('window-all-closed', () => {
+  app.quit();
 });
