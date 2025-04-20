@@ -1,98 +1,81 @@
-// main.js
-const { app, BrowserWindow, ipcMain, Tray, Menu } = require('electron');
-const path = require('path');
+const { app, BrowserWindow, Tray, Menu, nativeImage, ipcMain, screen } = require('electron');
 
-// carrega o addon nativo que expõe `setAsWallpaper(HWND)`
-const desktop = require(path.join(__dirname, 'native', 'build', 'Release', 'desktop.node'));
-
-let mainWindow;
-let wallpaperWindow;
+let win;
 let tray;
+let clicksEnabled = false;
 
-function createWindows() {
-  // 1) Janela interativa normal
-  mainWindow = new BrowserWindow({
-    width: 900,
-    height: 700,
-    show: true,
-    webPreferences: {
-      preload: path.join(__dirname, 'preload.js'),
-      contextIsolation: true
-    }
-  });
-  mainWindow.loadFile('index.html');
+function createWindow() {
+  // Obtém área de trabalho excluindo a barra de tarefas
+  const { x, y, width, height } = screen.getPrimaryDisplay().workArea;
 
-  // 2) Janela “wallpaper” (transparent & click‑through)
-  wallpaperWindow = new BrowserWindow({
-    width: 900,
-    height: 700,
+  win = new BrowserWindow({
+    x,
+    y,
+    width,
+    height,
     frame: false,
     transparent: true,
-    hasShadow: false,
+    resizable: false,
     skipTaskbar: true,
-    focusable: false,
-    show: false,
+    focusable: true,
     webPreferences: {
-      preload: path.join(__dirname, 'preload.js'),
-      contextIsolation: true
+      nodeIntegration: true,
+      contextIsolation: false,
     }
   });
-  wallpaperWindow.setIgnoreMouseEvents(true, { forward: true });
-  wallpaperWindow.loadFile('index.html');
 
-  // 3) Assim que estiver pronta, “encaixa” atrás dos ícones
-  wallpaperWindow.once('ready-to-show', () => {
-    const handle = wallpaperWindow.getNativeWindowHandle();
-    // handle já é um Buffer com o HWND
-    desktop.setAsWallpaper(handle);
-  });
+  win.loadFile('index.html');
 
-  // Se o usuário fechar a janela interativa, encerra o app
-  mainWindow.on('closed', () => {
-    app.quit();
-  });
+  // Bloqueia cliques fora da checklist, mas mantém forward para o desktop
+  win.setIgnoreMouseEvents(true, { forward: true });
 }
 
-function setupTray() {
-  tray = new Tray(path.join(__dirname, 'icon.png')); // um ícone PNG ou ICO de 16x16/32x32
-  const ctxMenu = Menu.buildFromTemplate([
-    { label: 'Abrir Cronograma', click: () => switchToInteractive() },
-    { label: 'Modo Wallpaper', click: () => switchToWallpaper() },
+function createTray() {
+  const svgIcon = `
+    <svg xmlns=\"http://www.w3.org/2000/svg\" width=\"16\" height=\"16\">
+      <circle cx=\"8\" cy=\"8\" r=\"7\" fill=\"#4A90E2\" stroke=\"#fff\" stroke-width=\"1\" />
+      <path d=\"M5 8l2 2 4-4\" fill=\"none\" stroke=\"#fff\" stroke-width=\"2\" />
+    </svg>`;
+
+  const iconImage = nativeImage.createFromBuffer(Buffer.from(svgIcon));
+  tray = new Tray(iconImage);
+  tray.setToolTip('Todo Wallpaper');
+  updateTrayMenu();
+}
+
+function updateTrayMenu() {
+  const menu = Menu.buildFromTemplate([
+    {
+      label: clicksEnabled ? 'Bloquear Checklist' : 'Desbloquear Checklist',
+      click: () => toggleClicks()
+    },
     { type: 'separator' },
-    { label: 'Sair', click: () => app.quit() }
+    { label: 'Sair', role: 'quit' }
   ]);
-  tray.setToolTip('Cronograma TDH++');
-  tray.setContextMenu(ctxMenu);
+  tray.setContextMenu(menu);
 }
 
-function switchToWallpaper() {
-  if (mainWindow) mainWindow.hide();
-  if (wallpaperWindow) wallpaperWindow.show();
+function toggleClicks() {
+  clicksEnabled = !clicksEnabled;
+
+  if (clicksEnabled) {
+    // Permite capturar cliques na janela (para a checklist funcionar)
+    win.setIgnoreMouseEvents(false);
+  } else {
+    // Bloqueia cliques, mas forward: true mantém o desktop interagível
+    win.setIgnoreMouseEvents(true, { forward: true });
+  }
+
+  // Notifica renderer para ativar/desativar a área clicável
+  win.webContents.send('toggle-clicks', clicksEnabled);
+  updateTrayMenu();
 }
 
-function switchToInteractive() {
-  if (wallpaperWindow) wallpaperWindow.hide();
-  if (mainWindow) mainWindow.show();
-}
+ipcMain.handle('request-clicks-state', () => clicksEnabled);
 
-// IPC para permitir que o renderer também mande trocar
-ipcMain.on('wallpaper-mode', switchToWallpaper);
-ipcMain.on('interactive-mode', switchToInteractive);
-
-// App ready
 app.whenReady().then(() => {
-  createWindows();
-  setupTray();
-
-  // No macOS, recria se o dock icon for clicado e não houver janelas
-  app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) {
-      createWindows();
-    }
-  });
+  createWindow();
+  createTray();
 });
 
-// Fecha completamente em todas as plataformas quando todas as janelas fecharem
-app.on('window-all-closed', () => {
-  app.quit();
-});
+app.on('window-all-closed', () => app.quit());

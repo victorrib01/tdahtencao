@@ -1,19 +1,11 @@
 {
-  "name": "cronograma-tdh",
-  "version": "1.0.0",
-  "main": "main.js",
-  "scripts": {
-    "start": "electron .",
-    "native:build": "node-gyp rebuild --target=29.0.0 --dist-url=https://electronjs.org/headers -C native",
-    "package-win": "electron-packager . CronogramaTDH --platform=win32 --arch=x64 --out=dist --icon=icon.ico --overwrite"
-  },
-  "devDependencies": {
-    "cypress": "^9.0.0",
-    "electron": "^35.2.0",
-    "electron-packager": "^17.1.2",
-    "jest": "^27.0.0",
-    "node-addon-api": "^8.3.1"
-  },
-  "dependencies": {
+    "name": "poc-todo-wallpaper",
+    "version": "1.0.0",
+    "main": "main.js",
+    "scripts": {
+      "start": "electron ."
+    },
+    "devDependencies": {
+      "electron": "^25.0.0"
+    }
   }
-}
