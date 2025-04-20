@@ -51,7 +51,6 @@ async function main() {
 
   initImportExport(tasks, () => render(tasks, currentDay, days));
 
-
   // SW, render inicial, linha do tempo
   registerSW();
   render(tasks, currentDay, days);

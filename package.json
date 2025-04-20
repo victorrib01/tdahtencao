@@ -5,13 +5,19 @@
   "scripts": {
     "start": "electron .",
     "package-win": "electron-packager . CronogramaTDH --platform=win32 --arch=x64 --out=dist --icon=icon.ico --overwrite",
-    "serve": "http-server ./ -c-1 -p 8080"
+    "serve": "http-server ./ -c-1 -p 8080",
+    "native:build": "node-gyp rebuild --target=29.0.0 --dist-url=https://electronjs.org/headers -C native"
   },
   "devDependencies": {
     "cypress": "^9.0.0",
-    "electron": "^*",
+    "electron": "^35.2.0",
     "electron-packager": "^17.1.2",
     "http-server": "^14.1.1",
-    "jest": "^27.0.0"
+    "jest": "^27.0.0",
+    "node-addon-api": "^8.3.1"
+  },
+  "dependencies": {
+    "auto-launch": "^5.0.6",
+    "wallpaper": "^7.2.1"
   }
 }
