@@ -62,3 +62,13 @@ async function main() {
 
 document.addEventListener('DOMContentLoaded', main);
 
+// botão na sua UI para alternar
+document.getElementById('wall-toggle').addEventListener('click', () => {
+  window.wallpaperAPI.toggle();
+});
+
+// opcional: reagir quando mudar de modo
+window.wallpaperAPI.onState(isWall => {
+  document.body.classList.toggle('wallpaper-active', isWall);
+});
+

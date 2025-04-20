@@ -1,153 +1,75 @@
-// Adicione aos imports
-const { app, BrowserWindow, Tray, Menu, globalShortcut, nativeImage, screen } = require('electron');
+const { app, BrowserWindow, Tray, Menu, ipcMain, screen } = require('electron');
 const path = require('path');
-const AutoLaunch = require('auto-launch');
-const fs = require('fs');
-const wallpaper = require('wallpaper');
 
-// Auto-inicialização
-const autoLauncher = new AutoLaunch({
-  name: 'TDAHTENÇÃO',
-  path: app.getPath('exe')
-});
+// carregue o módulo nativo
+const desktop = require(path.join(__dirname, 'native', 'build', 'Release', 'desktop.node'));
 
-let win;
-let wallpaperWin;
+let win, tray, isWallpaper = false;
 
-// Verificar/ativar início automático
-function checkAutoLaunch() {
-  autoLauncher.isEnabled().then((isEnabled) => {
-    if (!isEnabled) autoLauncher.enable();
-  });
-}
-
-// Criar janela com transparência e sempre no topo
 function createWindow() {
   win = new BrowserWindow({
-    width: 400, 
-    height: 600,
-    transparent: true,
+    width: 600, height: 400,
     frame: false,
-    alwaysOnTop: true,
-    webPreferences: { 
-      nodeIntegration: true,
-      contextIsolation: false,
-      enableRemoteModule: true // Adicione esta linha
+    transparent: true,
+    resizable: false,
+    webPreferences: {
+      preload: path.join(__dirname, 'preload.js'),
+      contextIsolation: true,
+      nodeIntegration: false
     }
   });
-  
-  // Garante que os inputs funcionarão
-  win.on('focus', () => {
-    win.webContents.executeJavaScript(`
-      document.querySelectorAll('input').forEach(i => {
-        i.blur();
-        i.focus();
-      });
-    `);
-  });
-  
   win.loadFile('index.html');
-  win.setAlwaysOnTop(true, 'screen-saver');
-}
-// Função para capturar conteúdo e definir como wallpaper
-async function setApplicationAsWallpaper() {
-  const renderWin = new BrowserWindow({
-    show: false,
-    width: screen.getPrimaryDisplay().workAreaSize.width,
-    height: screen.getPrimaryDisplay().workAreaSize.height,
-    webPreferences: { offscreen: true }
-  });
-  
-  renderWin.loadFile('wallpaper.html');
-  
-  renderWin.webContents.once('did-finish-load', async () => {
-    const image = await renderWin.webContents.capturePage();
-    const tempPath = path.join(app.getPath('temp'), 'tdah-wallpaper.png');
-    
-    fs.writeFileSync(tempPath, image.toPNG());
-    await wallpaper.set(tempPath);
-    
-    renderWin.close();
-  });
+  buildTray();
 }
 
-function createTray() {
-  tray = new Tray(path.join(__dirname, 'assets/icons/icon-192.png'));
-  
-  const contextMenu = Menu.buildFromTemplate([
-    { label: 'Visibilidade', submenu: [
-      { label: 'Normal', type: 'radio', checked: true, click: () => win.setOpacity(1.0) },
-      { label: '75%', type: 'radio', click: () => win.setOpacity(0.75) },
-      { label: '50%', type: 'radio', click: () => win.setOpacity(0.5) },
-      { label: '25%', type: 'radio', click: () => win.setOpacity(0.25) },
-    ]},
-    { label: 'Sempre Visível', type: 'checkbox', checked: true, click: (item) => 
-      win.setAlwaysOnTop(item.checked) },
-    { label: 'Modo', submenu: [
-      { label: 'Normal', type: 'radio', checked: true, click: () => {
-        win.webContents.executeJavaScript('setAppMode("normal")');
-      }},
-      { label: 'Foco', type: 'radio', click: () => {
-        win.webContents.executeJavaScript('setAppMode("focus")');
-      }},
-      { label: 'Sem Distrações', type: 'radio', click: () => {
-        win.webContents.executeJavaScript('setAppMode("distraction-free")');
-      }}
-    ]},
-    { label: 'Atualizar Wallpaper', click: () => setApplicationAsWallpaper() },
-    { type: 'separator' },
-    { label: 'Iniciar com o Sistema', type: 'checkbox', checked: true, 
-      click: (item) => item.checked ? autoLauncher.enable() : autoLauncher.disable() },
-    { type: 'separator' },
-    { label: 'Abrir', click: () => win.show() },
-    { label: 'Sair', click: () => app.quit() }
-  ]);
-  
-  tray.setContextMenu(contextMenu);
-  tray.setToolTip('TDAHTENÇÃO');
+function buildTray() {
+  tray = new Tray(path.join(__dirname, 'assets','icons', 'icon-192.png'));
+  updateMenu();
 }
 
-function registerShortcuts() {
-  // Mostrar/esconder
-  globalShortcut.register('Alt+T', () => {
-    if (win.isVisible()) win.hide();
-    else win.show();
-  });
-  
-  // Nova tarefa
-  globalShortcut.register('Alt+N', () => {
-    win.webContents.executeJavaScript('document.getElementById("open-modal").click()');
-  });
-  
-  // Foco em pomodoro
-  globalShortcut.register('Alt+P', () => {
-    win.webContents.executeJavaScript('startPomodoroShortcut()');
-  });
+function updateMenu() {
+  tray.setContextMenu(Menu.buildFromTemplate([
+    {
+      label: isWallpaper ? 'Abrir App' : 'Wallpaper Mode',
+      click: toggleWallpaperMode
+    },
+    { role: 'quit', label: 'Sair' }
+  ]));
 }
 
-// Inicialização principal
-app.whenReady().then(() => {
-  checkAutoLaunch();
-  createWindow();
-  createTray();
-  registerShortcuts();
-  setApplicationAsWallpaper(); // Define o wallpaper
-});
+function toggleWallpaperMode() {
+  const hwndBuf = win.getNativeWindowHandle();
+  // Para x64:
+  const hwnd = hwndBuf.readUInt32LE(0);
 
-// Manipuladores de eventos do sistema
-app.on('system-theme-changed', () => {
-  win.webContents.executeJavaScript('systemThemeChanged()');
-});
-
-// Evitar que o app feche quando todas as janelas fecham (ficará na bandeja)
-app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') {
-    // Não sair automaticamente no macOS
+  if (!isWallpaper) {
+    // cola atrás dos ícones
+    desktop.attach(hwnd);
+    // e torna click‑through
+    win.setIgnoreMouseEvents(true, { forward: true });
+    win.setAlwaysOnTop(true, 'screen-saver');
+    // maximize cobre toda a tela
+    const { width, height } = screen.getPrimaryDisplay().workArea;
+    win.setBounds({ x: 0, y: 0, width, height });
+  } else {
+    // restaura para janela normal
+    desktop.detach(hwnd);
+    win.setIgnoreMouseEvents(false);
+    win.setAlwaysOnTop(false);
+    win.unmaximize();
+    win.setSize(600, 400);
+    win.center();
   }
-});
 
-app.on('activate', () => {
-  if (BrowserWindow.getAllWindows().length === 0) {
-    createWindow();
-  }
+  isWallpaper = !isWallpaper;
+  updateMenu();
+  // informe ao renderer se quiser esconder badges, etc.
+  win.webContents.send('wallpaper-state', isWallpaper);
+}
+
+app.whenReady().then(createWindow);
+
+ipcMain.handle('toggle-wallpaper', () => {
+  toggleWallpaperMode();
+  return isWallpaper;
 });
