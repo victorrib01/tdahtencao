@@ -2,68 +2,149 @@
 <html lang="pt-BR">
 <head>
   <meta charset="UTF-8">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:;">
   <meta name="viewport" content="width=device-width,initial-scale=1.0">
   <title>Todo Wallpaper</title>
   <style>
-    :root { --bg: rgba(255,255,255,0.85); --accent: #4A90E2; --text: #333; }
-    html, body { margin:0; padding:0; width:100%; height:100%; background:transparent; }
-    #task-container { position:absolute; top:20px; right:20px; background:var(--bg);
-      border-radius:16px; box-shadow:0 4px 12px rgba(0,0,0,0.15); padding:20px;
-      width:340px; max-height:calc(100% - 40px); overflow-y:auto;
-      font-family:'Segoe UI',sans-serif; color:var(--text);
-      pointer-events:none; opacity:0.9; transition:opacity 0.2s;
+    :root {
+      --bg: rgba(255,255,255,0.9);
+      --accent: #4A90E2;
+      --daily-color: #E67E22;
+      --text: #333;
+      --shade-color: rgba(231,76,60,0.2);
     }
-    #task-container.active { pointer-events:auto; opacity:1; }
-    h2 { margin:12px 0 6px; font-size:1.1rem; color:var(--accent); }
-    ul { list-style:none; margin:0; padding:0; }
-    li { display:flex; align-items:center; margin-bottom:8px; }
-    li input { margin-right:10px; transform:scale(1.2); }
-    .time { margin-left:auto; font-size:0.85rem; color:#666; }
-    .done { text-decoration:line-through; color:#888; }
+    html, body {
+      margin: 0; padding: 0;
+      width: 100%; height: 100%;
+      background: transparent;
+    }
+    #task-container {
+      position: absolute; top: 20px; right: 20px;
+      background: var(--bg);
+      border-radius: 16px;
+      padding: 20px;
+      width: 360px;
+      max-height: calc(100% - 40px);
+      overflow-y: auto;
+      font-family: 'Segoe UI', sans-serif;
+      color: var(--text);
+      pointer-events: none;
+      opacity: 0.9;
+    }
+    #task-container.active {
+      pointer-events: auto;
+      opacity: 1;
+    }
+    h2 {
+      margin: 0 0 10px;
+      font-size: 1.2rem;
+      color: var(--accent);
+      border-bottom: 1px solid #ccc;
+      padding-bottom: 6px;
+    }
+    #time-shade {
+      position: absolute;
+      left: 20px; right: 20px;
+      top: calc(20px + 1.2rem + 10px + 6px); /* align below h2 */
+      background: var(--shade-color);
+      z-index: 0;
+      pointer-events: none;
+    }
+    ul {
+      list-style: none;
+      margin: 0; padding: 0;
+      position: relative;
+      z-index: 1;
+    }
+    li {
+      display: flex;
+      align-items: center;
+      margin: 8px 0;
+    }
+    li.weekly span { color: var(--accent); }
+    li.daily span { color: var(--daily-color); }
+    li input[type='checkbox'] {
+      margin-right: 10px;
+      transform: scale(1.2);
+    }
+    .time {
+      margin-left: auto;
+      font-size: 0.85rem;
+      color: #666;
+    }
+    .done {
+      text-decoration: line-through;
+      color: #999;
+    }
   </style>
 </head>
 <body>
   <div id="task-container">
-    <h2>Tarefas Semanais</h2>
-    <ul id="weekly-list"></ul>
-    <h2>Tarefas Pontuais</h2>
-    <ul id="daily-list"></ul>
+    <h2 id="weekday-title"></h2>
+    <div id="time-shade"></div>
+    <ul id="task-list"></ul>
   </div>
   <script>
-    document.addEventListener('DOMContentLoaded', () => {
-      const { ipcRenderer } = require('electron');
-      async function loadAndRender() {
-        const cfg = await ipcRenderer.invoke('load-config');
-        const today = new Date().getDay();
-        const dateStr = new Date().toISOString().slice(0,10);
-        const wl = document.getElementById('weekly-list'); wl.innerHTML = '';
-        (cfg.weekly[today] || []).forEach(t => {
-          const li = document.createElement('li');
-          const cb = document.createElement('input'); cb.type = 'checkbox';
-          const lbl = document.createElement('span'); lbl.textContent = t.text;
-          const tm = document.createElement('span'); tm.textContent = t.time; tm.className = 'time';
-          li.append(cb, lbl, tm);
-          wl.appendChild(li);
-        });
-        const dl = document.getElementById('daily-list'); dl.innerHTML = '';
-        (cfg.daily || []).filter(t => t.datetime.startsWith(dateStr)).forEach(t => {
-          const dt = t.datetime.slice(11,16);
-          const li = document.createElement('li');
-          const cb = document.createElement('input'); cb.type = 'checkbox';
-          const lbl = document.createElement('span'); lbl.textContent = t.text;
-          const tm = document.createElement('span'); tm.textContent = dt; tm.className = 'time';
-          li.append(cb, lbl, tm);
-          dl.appendChild(li);
-        });
+    const { ipcRenderer } = require('electron');
+    const days = ['Domingo','Segunda','Terça','Quarta','Quinta','Sexta','Sábado'];
+
+    async function loadAndRender() {
+      const cfg = await ipcRenderer.invoke('load-config');
+      const today = new Date().getDay();
+      const dateStr = new Date().toISOString().slice(0,10);
+
+      document.getElementById('weekday-title').textContent = `Tarefas ${days[today]}`;
+
+      const weekly = (cfg.weekly[today] || []).map(t => ({ text: t.text, time: t.time, type: 'weekly' }));
+      const daily = (cfg.daily || [])
+        .filter(t => t.datetime.startsWith(dateStr))
+        .map(t => ({ text: t.text, time: t.datetime.slice(11,16), type: 'daily' }));
+
+      const merged = weekly.concat(daily).sort((a,b) => a.time.localeCompare(b.time));
+
+      const list = document.getElementById('task-list');
+      list.innerHTML = '';
+      merged.forEach(t => {
+        const li = document.createElement('li');
+        li.classList.add(t.type);
+        const cb = document.createElement('input'); cb.type='checkbox';
+        const lbl = document.createElement('span'); lbl.textContent = t.text;
+        const tm = document.createElement('span'); tm.textContent = t.time; tm.className = 'time';
+        li.append(cb, lbl, tm);
+        list.append(li);
+      });
+
+      applyShade();
+    }
+
+    function applyShade() {
+      const shade = document.getElementById('time-shade');
+      const list = document.getElementById('task-list');
+      if (!list.children.length) {
+        shade.style.display = 'none'; return;
       }
-      ipcRenderer.on('config-updated', () => { loadAndRender(); });
-      ipcRenderer.on('toggle-clicks', (_, state) => {
-        document.getElementById('task-container').classList.toggle('active', state);
+      shade.style.display = 'block';
+
+      const now = new Date();
+      const minutes = now.getHours() * 60 + now.getMinutes();
+      const ratio = minutes / (24 * 60);
+
+      const listRect = list.getBoundingClientRect();
+      const containerRect = document.getElementById('task-container').getBoundingClientRect();
+      const startTop = listRect.top - containerRect.top;
+      const height = listRect.height * ratio;
+
+      shade.style.top = (containerRect.top + startTop) - containerRect.top + 'px';
+      shade.style.height = height + 'px';
+    }
+
+    document.addEventListener('DOMContentLoaded', () => {
+      ipcRenderer.on('config-updated', loadAndRender);
+      ipcRenderer.on('toggle-clicks', (_,state) => {
+        document.getElementById('task-container').classList.toggle('active',state);
       });
       loadAndRender().then(async () => {
-        const active = await ipcRenderer.invoke('request-clicks-state');
-        document.getElementById('task-container').classList.toggle('active', active);
+        const state = await ipcRenderer.invoke('request-clicks-state');
+        document.getElementById('task-container').classList.toggle('active', state);
       });
     });
   </script>

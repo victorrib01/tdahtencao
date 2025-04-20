@@ -1,24 +1,70 @@
-const { app, BrowserWindow, Tray, Menu, nativeImage, ipcMain, screen } = require('electron');
+const { app, BrowserWindow, Tray, Menu, nativeImage, ipcMain, screen, Notification } = require('electron');
 const fs = require('fs');
 
 let wallpaperWin;
 let settingsWin;
 let tray;
 let clicksEnabled = false;
+let notificationTimers = [];
+
+function loadConfig() {
+  try { return JSON.parse(fs.readFileSync('config.json')); }
+  catch { return { weekly: {}, daily: [], notifyOffset: 0, notificationSound: null }; }
+}
+
+function scheduleNotifications() {
+  notificationTimers.forEach(t => clearTimeout(t));
+  notificationTimers = [];
+
+  const cfg = loadConfig();
+  const now = new Date();
+  const today = now.getDay();
+  const offsetMs = (cfg.notifyOffset || 0) * 60 * 1000;
+
+  // Weekly
+  (cfg.weekly[today] || []).forEach(task => {
+    const [h, m] = task.time.split(':').map(Number);
+    const target = new Date(); target.setHours(h, m, 0, 0);
+    const notifyTime = new Date(target.getTime() - offsetMs);
+    if (notifyTime > now) {
+      const ms = notifyTime - now;
+      const id = setTimeout(() => {
+        new Notification({
+          title: 'Tarefa Semanal',
+          body: `${task.text} às ${task.time}`,
+          silent: !cfg.notificationSound,
+          sound: cfg.notificationSound || undefined
+        }).show();
+      }, ms);
+      notificationTimers.push(id);
+    }
+  });
+
+  // Daily
+  (cfg.daily || []).forEach(task => {
+    const target = new Date(task.datetime);
+    const notifyTime = new Date(target.getTime() - offsetMs);
+    if (notifyTime > now) {
+      const ms = notifyTime - now;
+      const id = setTimeout(() => {
+        const time = target.toTimeString().slice(0,5);
+        new Notification({
+          title: 'Tarefa Pontual',
+          body: `${task.text} às ${time}`,
+          silent: !cfg.notificationSound,
+          sound: cfg.notificationSound || undefined
+        }).show();
+      }, ms);
+      notificationTimers.push(id);
+    }
+  });
+}
 
 function createWallpaper() {
   const { x, y, width, height } = screen.getPrimaryDisplay().workArea;
   wallpaperWin = new BrowserWindow({ x, y, width, height,
-    frame: false,
-    transparent: true,
-    resizable: false,
-    skipTaskbar: true,
-    focusable: true,
-    webPreferences: {
-      nodeIntegration: true,
-      contextIsolation: false,
-      sandbox: false // mantido para facilitar POC
-    }
+    frame: false, transparent: true, resizable: false, skipTaskbar: true,
+    focusable: true, webPreferences: { nodeIntegration: true, contextIsolation: false }
   });
   wallpaperWin.loadFile('index.html');
   wallpaperWin.setIgnoreMouseEvents(true, { forward: true });
@@ -26,14 +72,8 @@ function createWallpaper() {
 
 function createSettings() {
   settingsWin = new BrowserWindow({
-    width: 950,
-    height: 500,
-    title: 'Configurar Tarefas',
-    resizable: false,
-    webPreferences: {
-      nodeIntegration: true,
-      contextIsolation: false
-    }
+    width: 950, height: 700, title: 'Configurar Tarefas', resizable: false,
+    webPreferences: { nodeIntegration: true, contextIsolation: false }
   });
   settingsWin.loadFile('settings.html');
   settingsWin.on('close', e => { e.preventDefault(); settingsWin.hide(); });
@@ -65,22 +105,15 @@ function toggleClicks() {
   updateTrayMenu();
 }
 
-ipcMain.handle('save-config', (_, config) => {
+ipcMain.handle('save-config', async (_, config) => {
   fs.writeFileSync('config.json', JSON.stringify(config));
   wallpaperWin.webContents.send('config-updated');
+  scheduleNotifications();
 });
-
-ipcMain.handle('load-config', () => {
-  try { return JSON.parse(fs.readFileSync('config.json')); }
-  catch { return { weekly: {}, daily: [] }; }
-});
-
+ipcMain.handle('load-config', () => loadConfig());
 ipcMain.handle('request-clicks-state', () => clicksEnabled);
 
 app.whenReady().then(() => {
-  createWallpaper();
-  createSettings();
-  createTray();
+  createWallpaper(); createSettings(); createTray(); scheduleNotifications();
 });
-
 app.on('window-all-closed', () => app.quit());
