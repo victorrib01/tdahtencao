@@ -26,8 +26,8 @@ function createWallpaper() {
 
 function createSettings() {
   settingsWin = new BrowserWindow({
-    width: 400,
-    height: 600,
+    width: 950,
+    height: 500,
     title: 'Configurar Tarefas',
     resizable: false,
     webPreferences: {
