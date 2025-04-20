@@ -2,136 +2,69 @@
 <html lang="pt-BR">
 <head>
   <meta charset="UTF-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:;">
   <meta name="viewport" content="width=device-width,initial-scale=1.0">
   <title>Todo Wallpaper</title>
   <style>
-    :root {
-      --bg: rgba(255,255,255,0.85);
-      --accent: #4A90E2;
-      --text: #333;
-    }
+    :root { --bg: rgba(255,255,255,0.85); --accent: #4A90E2; --text: #333; }
     html, body { margin:0; padding:0; width:100%; height:100%; background:transparent; }
-    #task-container {
-      position: absolute;
-      top: 20px; right: 20px;
-      background: var(--bg);
-      border-radius: 16px;
-      box-shadow: 0 4px 12px rgba(0,0,0,0.15);
-      padding: 20px;
-      width: 320px;
-      max-height: calc(100% - 40px);
-      overflow-y: auto;
-      font-family: 'Segoe UI', sans-serif;
-      color: var(--text);
-      pointer-events: none;
-      opacity: 0.9;
-      transition: opacity 0.2s;
+    #task-container { position:absolute; top:20px; right:20px; background:var(--bg);
+      border-radius:16px; box-shadow:0 4px 12px rgba(0,0,0,0.15); padding:20px;
+      width:340px; max-height:calc(100% - 40px); overflow-y:auto;
+      font-family:'Segoe UI',sans-serif; color:var(--text);
+      pointer-events:none; opacity:0.9; transition:opacity 0.2s;
     }
-    #task-container.active { pointer-events: auto; opacity: 1; }
-    h2 {
-      margin: 0 0 8px;
-      font-size: 1.2rem;
-      color: var(--accent);
-    }
-    ul { list-style: none; margin: 0 0 16px; padding: 0; }
-    li {
-      display: flex;
-      align-items: center;
-      margin-bottom: 8px;
-    }
-    li input[type="checkbox"] {
-      margin-right: 10px;
-      transform: scale(1.3);
-    }
-    .done { text-decoration: line-through; color: #888; }
-    .time {
-      margin-left: auto;
-      font-size: 0.9rem;
-      color: #666;
-    }
+    #task-container.active { pointer-events:auto; opacity:1; }
+    h2 { margin:12px 0 6px; font-size:1.1rem; color:var(--accent); }
+    ul { list-style:none; margin:0; padding:0; }
+    li { display:flex; align-items:center; margin-bottom:8px; }
+    li input { margin-right:10px; transform:scale(1.2); }
+    .time { margin-left:auto; font-size:0.85rem; color:#666; }
+    .done { text-decoration:line-through; color:#888; }
   </style>
 </head>
 <body>
   <div id="task-container">
     <h2>Tarefas Semanais</h2>
     <ul id="weekly-list"></ul>
-    <h2>Tarefas de Hoje</h2>
+    <h2>Tarefas Pontuais</h2>
     <ul id="daily-list"></ul>
   </div>
   <script>
-    const { ipcRenderer } = require('electron');
-    const weeklyTasks = {
-      1: ['Meditar 10min', 'Responder e-mails', 'Exercício físico'],
-      2: ['Planejar sprint', 'Reunião de equipe', 'Revisar código'],
-      3: ['Estudar React', 'Atualizar Notion'],
-      4: ['Escrever blog post', 'Fazer backup'],
-      5: ['Revisar cronograma', 'Enviar relatório'],
-      6: ['Tempo livre', 'Organizar espaço'],
-      7: ['Planejar próxima semana']
-    };
-    const pontuaisTasks = [
-      { title: 'Criar PR para produção do Projeto X', datetime: '2025-04-19T16:00' }
-      // Adicione mais tarefas pontuais aqui
-    ];
-
-    const today = new Date().getDay() || 7;
-    const dateStr = new Date().toISOString().slice(0,10);
-    const storageWeeklyKey = `weekly_${today}`;
-    const storageDailyKey = `daily_${dateStr}`;
-    let doneWeekly = JSON.parse(localStorage.getItem(storageWeeklyKey)||'[]');
-    let doneDaily = JSON.parse(localStorage.getItem(storageDailyKey)||'[]');
-
-    const weeklyList = document.getElementById('weekly-list');
-    const dailyList = document.getElementById('daily-list');
-
-    function render() {
-      weeklyList.innerHTML = '';
-      (weeklyTasks[today]||[]).forEach((title,i) => {
-        const li = createTaskLi(title, i, doneWeekly.includes(i), (id, done) => {
-          doneWeekly = done ? [...doneWeekly,id] : doneWeekly.filter(x=>x!==id);
-          localStorage.setItem(storageWeeklyKey, JSON.stringify(doneWeekly));
+    document.addEventListener('DOMContentLoaded', () => {
+      const { ipcRenderer } = require('electron');
+      async function loadAndRender() {
+        const cfg = await ipcRenderer.invoke('load-config');
+        const today = new Date().getDay();
+        const dateStr = new Date().toISOString().slice(0,10);
+        const wl = document.getElementById('weekly-list'); wl.innerHTML = '';
+        (cfg.weekly[today] || []).forEach(t => {
+          const li = document.createElement('li');
+          const cb = document.createElement('input'); cb.type = 'checkbox';
+          const lbl = document.createElement('span'); lbl.textContent = t.text;
+          const tm = document.createElement('span'); tm.textContent = t.time; tm.className = 'time';
+          li.append(cb, lbl, tm);
+          wl.appendChild(li);
         });
-        weeklyList.append(li);
-      });
-
-      dailyList.innerHTML = '';
-      pontuaisTasks.filter(t=>t.datetime.slice(0,10)===dateStr)
-        .forEach((t,i) => {
-          const time = t.datetime.slice(11,16);
-          const id = `d${i}`;
-          const li = createTaskLi(t.title, id, doneDaily.includes(id), (id, done) => {
-            doneDaily = done ? [...doneDaily,id] : doneDaily.filter(x=>x!==id);
-            localStorage.setItem(storageDailyKey, JSON.stringify(doneDaily));
-          }, time);
-          dailyList.append(li);
+        const dl = document.getElementById('daily-list'); dl.innerHTML = '';
+        (cfg.daily || []).filter(t => t.datetime.startsWith(dateStr)).forEach(t => {
+          const dt = t.datetime.slice(11,16);
+          const li = document.createElement('li');
+          const cb = document.createElement('input'); cb.type = 'checkbox';
+          const lbl = document.createElement('span'); lbl.textContent = t.text;
+          const tm = document.createElement('span'); tm.textContent = dt; tm.className = 'time';
+          li.append(cb, lbl, tm);
+          dl.appendChild(li);
         });
-    }
-
-    function createTaskLi(title, id, checked, onToggle, time) {
-      const li = document.createElement('li');
-      const cb = document.createElement('input'); cb.type='checkbox'; cb.checked=checked;
-      const label = document.createElement('span'); label.textContent=title;
-      if(checked) label.classList.add('done');
-      cb.addEventListener('change', () => {
-        onToggle(id, cb.checked);
-        label.classList.toggle('done', cb.checked);
-      });
-      li.append(cb, label);
-      if(time) {
-        const spanTime = document.createElement('span');
-        spanTime.textContent = time; spanTime.className='time';
-        li.append(spanTime);
       }
-      return li;
-    }
-
-    render();
-
-    ipcRenderer.invoke('request-clicks-state').then(state => {
-      document.getElementById('task-container').classList.toggle('active', state);
-    });
-    ipcRenderer.on('toggle-clicks', (_, state) => {
-      document.getElementById('task-container').classList.toggle('active', state);
+      ipcRenderer.on('config-updated', () => { loadAndRender(); });
+      ipcRenderer.on('toggle-clicks', (_, state) => {
+        document.getElementById('task-container').classList.toggle('active', state);
+      });
+      loadAndRender().then(async () => {
+        const active = await ipcRenderer.invoke('request-clicks-state');
+        document.getElementById('task-container').classList.toggle('active', active);
+      });
     });
   </script>
 </body>

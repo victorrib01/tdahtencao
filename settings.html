@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:;">
+  <meta name="viewport" content="width=device-width,initial-scale=1.0">
+  <title>Configurar Tarefas</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 0; padding: 20px; background: #fafafa; }
+    h1 { margin-bottom: 20px; color: #333; }
+    form { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 20px; }
+    select, input[type=text], input[type=time], input[type=date] {
+      padding: 8px; border: 1px solid #ccc; border-radius: 4px; flex: 1 1 120px;
+    }
+    button { padding: 8px 16px; background: #4A90E2; color: #fff; border: none; border-radius: 4px; cursor: pointer; }
+    table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+    th, td { padding: 8px; border-bottom: 1px solid #ddd; text-align: left; }
+    .remove-btn { background: transparent; border: none; color: #c00; cursor: pointer; }
+    #save-btn { margin-top: 20px; width: 100%; }
+  </style>
+</head>
+<body>
+  <h1>Configurar Tarefas</h1>
+  <form id="task-form">
+    <select id="type">
+      <option value="weekly">Semanal</option>
+      <option value="daily">Pontual</option>
+    </select>
+    <select id="dow" class="toggle-input">
+      <option value="1">Segunda</option>
+      <option value="2">Terça</option>
+      <option value="3">Quarta</option>
+      <option value="4">Quinta</option>
+      <option value="5">Sexta</option>
+      <option value="6">Sábado</option>
+      <option value="0">Domingo</option>
+    </select>
+    <input id="date" type="date" class="toggle-input" style="display:none;">
+    <input id="time" type="time">
+    <input id="text" type="text" placeholder="Descrição">
+    <button type="submit">Adicionar</button>
+  </form>
+
+  <h2>Tarefas Cadastradas</h2>
+  <table>
+    <thead>
+      <tr><th>Tipo</th><th>Dia/Data</th><th>Hora</th><th>Descrição</th><th></th></tr>
+    </thead>
+    <tbody id="task-table"></tbody>
+  </table>
+
+  <button id="save-btn">Salvar Configuração</button>
+
+  <script>
+    document.addEventListener('DOMContentLoaded', async () => {
+      const { ipcRenderer } = require('electron');
+      const tasks = [];
+      const form = document.getElementById('task-form');
+      const typeEl = document.getElementById('type');
+      const dowEl = document.getElementById('dow');
+      const dateEl = document.getElementById('date');
+      const timeEl = document.getElementById('time');
+      const textEl = document.getElementById('text');
+      const table = document.getElementById('task-table');
+
+      // Toggle inputs
+      function toggleInputs() {
+        if (typeEl.value === 'weekly') {
+          dowEl.style.display = '';
+          dateEl.style.display = 'none';
+        } else {
+          dowEl.style.display = 'none';
+          dateEl.style.display = '';
+        }
+      }
+      typeEl.addEventListener('change', toggleInputs);
+      toggleInputs();
+
+      // Render table
+      function renderTasks() {
+        table.innerHTML = '';
+        tasks.forEach((t, i) => {
+          const tr = document.createElement('tr');
+          const cellType = t.type === 'weekly' ? 'Semanal' : 'Pontual';
+          const cellDay = t.type === 'weekly'
+            ? ['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'][t.day]
+            : t.date;
+          tr.innerHTML = `
+            <td>${cellType}</td>
+            <td>${cellDay}</td>
+            <td>${t.time}</td>
+            <td>${t.text}</td>
+            <td><button class="remove-btn" data-i="${i}">x</button></td>
+          `;
+          table.appendChild(tr);
+        });
+        document.querySelectorAll('.remove-btn').forEach(btn => {
+          btn.addEventListener('click', () => {
+            tasks.splice(btn.dataset.i, 1);
+            renderTasks();
+          });
+        });
+      }
+
+      // Handle add
+      form.addEventListener('submit', e => {
+        e.preventDefault();
+        const task = { type: typeEl.value, time: timeEl.value, text: textEl.value };
+        if (task.type === 'weekly') {
+          task.day = parseInt(dowEl.value, 10);
+        } else {
+          task.date = dateEl.value;
+        }
+        if (!task.text || !task.time || (task.type === 'weekly' && isNaN(task.day)) || (task.type === 'daily' && !task.date)) {
+          return;
+        }
+        tasks.push(task);
+        renderTasks();
+        textEl.value = '';
+        timeEl.value = '';
+        form.reset();
+        toggleInputs();
+      });
+
+      // Load existing config
+      const cfg = await ipcRenderer.invoke('load-config');
+      Object.entries(cfg.weekly || {}).forEach(([day, arr]) => {
+        arr.forEach(item => tasks.push({ type: 'weekly', day: parseInt(day,10), text: item.text, time: item.time }));
+      });
+      (cfg.daily || []).forEach(item => {
+        const [date, time] = item.datetime.split('T');
+        tasks.push({ type: 'daily', date, text: item.text, time });
+      });
+      renderTasks();
+
+      // Save config
+      document.getElementById('save-btn').addEventListener('click', async () => {
+        const weekly = {};
+        const daily = [];
+        tasks.forEach(t => {
+          if (t.type === 'weekly') {
+            if (!weekly[t.day]) weekly[t.day] = [];
+            weekly[t.day].push({ text: t.text, time: t.time });
+          } else {
+            daily.push({ text: t.text, datetime: `${t.date}T${t.time}` });
+          }
+        });
+        await ipcRenderer.invoke('save-config', { weekly, daily });
+        window.close();
+      });
+    });
+  </script>
+</body>
+</html>

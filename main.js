@@ -1,18 +1,14 @@
 const { app, BrowserWindow, Tray, Menu, nativeImage, ipcMain, screen } = require('electron');
+const fs = require('fs');
 
-let win;
+let wallpaperWin;
+let settingsWin;
 let tray;
 let clicksEnabled = false;
 
-function createWindow() {
-  // Obtém área de trabalho excluindo a barra de tarefas
+function createWallpaper() {
   const { x, y, width, height } = screen.getPrimaryDisplay().workArea;
-
-  win = new BrowserWindow({
-    x,
-    y,
-    width,
-    height,
+  wallpaperWin = new BrowserWindow({ x, y, width, height,
     frame: false,
     transparent: true,
     resizable: false,
@@ -21,60 +17,69 @@ function createWindow() {
     webPreferences: {
       nodeIntegration: true,
       contextIsolation: false,
+      sandbox: false // mantido para facilitar POC
     }
   });
+  wallpaperWin.loadFile('index.html');
+  wallpaperWin.setIgnoreMouseEvents(true, { forward: true });
+}
 
-  win.loadFile('index.html');
-
-  // Bloqueia cliques fora da checklist, mas mantém forward para o desktop
-  win.setIgnoreMouseEvents(true, { forward: true });
+function createSettings() {
+  settingsWin = new BrowserWindow({
+    width: 400,
+    height: 600,
+    title: 'Configurar Tarefas',
+    resizable: false,
+    webPreferences: {
+      nodeIntegration: true,
+      contextIsolation: false
+    }
+  });
+  settingsWin.loadFile('settings.html');
+  settingsWin.on('close', e => { e.preventDefault(); settingsWin.hide(); });
 }
 
 function createTray() {
-  const svgIcon = `
-    <svg xmlns=\"http://www.w3.org/2000/svg\" width=\"16\" height=\"16\">
-      <circle cx=\"8\" cy=\"8\" r=\"7\" fill=\"#4A90E2\" stroke=\"#fff\" stroke-width=\"1\" />
-      <path d=\"M5 8l2 2 4-4\" fill=\"none\" stroke=\"#fff\" stroke-width=\"2\" />
-    </svg>`;
-
-  const iconImage = nativeImage.createFromBuffer(Buffer.from(svgIcon));
-  tray = new Tray(iconImage);
+  const svgIcon = `<svg xmlns='http://www.w3.org/2000/svg' width='16' height='16'>
+    <circle cx='8' cy='8' r='7' fill='#4A90E2'/></svg>`;
+  const icon = nativeImage.createFromBuffer(Buffer.from(svgIcon));
+  tray = new Tray(icon);
   tray.setToolTip('Todo Wallpaper');
   updateTrayMenu();
 }
 
 function updateTrayMenu() {
-  const menu = Menu.buildFromTemplate([
-    {
-      label: clicksEnabled ? 'Bloquear Checklist' : 'Desbloquear Checklist',
-      click: () => toggleClicks()
-    },
+  const contextMenu = Menu.buildFromTemplate([
+    { label: clicksEnabled ? 'Bloquear' : 'Desbloquear', click: toggleClicks },
+    { label: 'Configurar', click: () => settingsWin.show() },
     { type: 'separator' },
     { label: 'Sair', role: 'quit' }
   ]);
-  tray.setContextMenu(menu);
+  tray.setContextMenu(contextMenu);
 }
 
 function toggleClicks() {
   clicksEnabled = !clicksEnabled;
-
-  if (clicksEnabled) {
-    // Permite capturar cliques na janela (para a checklist funcionar)
-    win.setIgnoreMouseEvents(false);
-  } else {
-    // Bloqueia cliques, mas forward: true mantém o desktop interagível
-    win.setIgnoreMouseEvents(true, { forward: true });
-  }
-
-  // Notifica renderer para ativar/desativar a área clicável
-  win.webContents.send('toggle-clicks', clicksEnabled);
+  wallpaperWin.setIgnoreMouseEvents(!clicksEnabled, { forward: true });
+  wallpaperWin.webContents.send('toggle-clicks', clicksEnabled);
   updateTrayMenu();
 }
+
+ipcMain.handle('save-config', (_, config) => {
+  fs.writeFileSync('config.json', JSON.stringify(config));
+  wallpaperWin.webContents.send('config-updated');
+});
+
+ipcMain.handle('load-config', () => {
+  try { return JSON.parse(fs.readFileSync('config.json')); }
+  catch { return { weekly: {}, daily: [] }; }
+});
 
 ipcMain.handle('request-clicks-state', () => clicksEnabled);
 
 app.whenReady().then(() => {
-  createWindow();
+  createWallpaper();
+  createSettings();
   createTray();
 });
 
